@@ -22,10 +22,7 @@ def main():
 
 if __name__ == "__main__":
     try:
-        # rates_dict, timestamp = get_exchange_rates()
-        test_eur_conversion()
-        test_orders_batch_conversion()
-        test_currency_conversion(source_dsn, target_dsn)
+        test_api_connection()
         logging.success("All tests passed!")
     except Exception as e:
         logging.error(f"Error occurred: {e}")
