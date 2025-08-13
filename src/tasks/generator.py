@@ -1,7 +1,8 @@
-import uuid, random
+import uuid, random, logging
 from faker import Faker
 from datetime import datetime, timezone, timedelta
 from src.repositories.postgres_repo import ensure_orders_table, insert_orders
+from src.services.exchange_rates import get_supported_currencies
 
 
 def generate_orders(n: int, now: datetime, seed: int | None = 69) -> list[dict]:
@@ -24,7 +25,9 @@ def generate_orders(n: int, now: datetime, seed: int | None = 69) -> list[dict]:
     start = now - timedelta(days=7)
     rows: list[dict] = []
     # TODO: replace with OpenExchangeRates API call
-    currencies = ["USD", "EUR", "GBP", "PLN"]
+    # currencies = list(get_supported_currencies().keys())
+    currencies = ["USD", "EUR", "GBP", "BTC"]
+    logging.debug(f"Supported currencies: {currencies}")
 
     for _ in range(n):
         # Uniformly distribute timestamps within [start, now]
