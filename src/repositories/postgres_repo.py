@@ -1,5 +1,7 @@
 import psycopg2
 import psycopg2.extras
+import logging
+from typing import List, Dict, Any
 
 ORDERS_DDL = """
 CREATE TABLE IF NOT EXISTS public.orders (
@@ -109,3 +111,32 @@ def ensure_orders_eur_table(dsn: str) -> None:
     """Create orders_eur table if it does not exist"""
     with psycopg2.connect(dsn) as conn, conn.cursor() as cur:
         cur.execute(ORDERS_EUR_DDL)
+
+
+def insert_orders_eur(dsn: str, eur_orders: List[Dict[str, Any]]) -> int:
+    """Insert EUR orders into orders_eur table"""
+
+    if not eur_orders:
+        return 0
+
+    query = """
+    INSERT INTO public.orders_eur 
+    (src_order_id, user_id, amount_eur, src_currency, src_amount, fx_rate_used, converted_at, created_at)
+    VALUES (%(src_order_id)s, %(user_id)s, %(amount_eur)s, %(src_currency)s, %(src_amount)s, %(fx_rate_used)s, %(converted_at)s, %(created_at)s)
+    ON CONFLICT (src_order_id) DO UPDATE SET
+        amount_eur = EXCLUDED.amount_eur,
+        fx_rate_used = EXCLUDED.fx_rate_used,
+        converted_at = EXCLUDED.converted_at
+    """
+
+    try:
+        with psycopg2.connect(dsn) as conn, conn.cursor() as cur:
+            cur.executemany(query, eur_orders)
+            inserted = cur.rowcount
+            conn.commit()
+
+        return inserted
+
+    except Exception as e:
+        logging.error(f"Failed to insert EUR orders: {e}")
+        raise

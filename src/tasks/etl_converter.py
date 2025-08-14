@@ -1,113 +1,121 @@
-import psycopg2
+import logging
 from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List
 
+import psycopg2
+from src.repositories.postgres_repo import ensure_orders_eur_table, insert_orders_eur
 from src.services.exchange_rates import get_exchange_rates, convert_to_eur
 
 
-def fetch_orders_from_source(
-    dsn: str, start_time: datetime, end_time: datetime
-) -> list[dict]:
-    """Fetch orders from source database within time range"""
-    
-    sql = """
-    SELECT order_id, customer_email, order_date, amount, currency
-    FROM public.orders
-    WHERE order_date >= %s AND order_date < %s
-    ORDER BY order_date
+def extract_orders_from_source(
+    source_dsn: str, hours_back: int = 1
+) -> List[Dict[str, Any]]:
+    """Extract orders from source database for the last N hours"""
+
+    cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours_back)
+    cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours_back)
+
+    query = """
+    SELECT id, user_id, amount, currency, created_at
+    FROM public.orders 
+    WHERE created_at >= %s
+    ORDER BY created_at DESC
     """
 
-    with psycopg2.connect(dsn) as conn, conn.cursor() as cur:
-        cur.execute(sql, (start_time, end_time))
-        if cur.description is None:
-            return []
-        columns = [desc[0] for desc in cur.description]
-        return [dict(zip(columns, row)) for row in cur.fetchall()]
+    try:
+        with psycopg2.connect(source_dsn) as conn, conn.cursor() as cur:
+            cur.execute(query, (cutoff_time,))
+
+            if cur.description is not None:
+                columns = [desc[0] for desc in cur.description]
+                orders = [dict(zip(columns, row)) for row in cur.fetchall()]
+            else:
+                orders = []
+
+        logging.info(f"Extracted {len(orders)} orders from {cutoff_time}")
+        return orders
+
+    except Exception as e:
+        logging.error(f"Failed to extract orders: {e}")
+        raise
 
 
-def convert_orders_batch(
-    orders: list[dict], rates: dict[str, float], fx_timestamp: int
-) -> list[tuple]:
-    """
-    Convert batch of orders to EUR
+def transform_orders_to_eur(
+    orders: List[Dict[str, Any]], rates: Dict[str, float]
+) -> List[Dict[str, Any]]:
+    """Transform orders to EUR using provided exchange rates"""
 
-    Args:
-        orders: List of orders to convert
-        rates: Exchange rates for conversion
-        fx_timestamp: Timestamp for the exchange rates
-
-    Returns:
-        List of tuples ready for database insertion
-    """
-    converted_records = []
-    fx_asof = datetime.fromtimestamp(fx_timestamp)
+    eur_orders = []
+    conversion_stats = {}
 
     for order in orders:
-        og_currency = order["currency"]
-        amount = float(order["amount"])
-
-        # Convert to EUR
-        eur_amount = convert_to_eur(amount, og_currency, rates)
-        if eur_amount is None:
-            # Skip unsupported currencies
-            continue
-
-        # Calculate the rate used for audit purposes
-        if og_currency == "EUR":
-            fx_rate_used = 1.0
-        else:
-            fx_rate_used = eur_amount / amount
-
-        converted_records.append(
-            (
-                order["order_id"],
-                order["customer_email"],
-                order["order_date"],
-                eur_amount,
-                og_currency,
-                fx_rate_used,
-                fx_asof,
-            )
+        # Convert amount to EUR
+        amount_eur = convert_to_eur(
+            amount=order["amount"], from_currency=order["currency"], rates=rates
         )
 
-    return converted_records
+        if amount_eur is not None:
+            # Calculate exchange rate used
+            fx_rate = (
+                rates.get(order["currency"], 1.0) if order["currency"] != "EUR" else 1.0
+            )
+
+            eur_order = {
+                "src_order_id": order["id"],
+                "user_id": order["user_id"],
+                "amount_eur": amount_eur,
+                "src_currency": order["currency"],
+                "src_amount": order["amount"],
+                "fx_rate_used": fx_rate,
+                "converted_at": datetime.now(timezone.utc),
+                "created_at": order["created_at"],
+            }
+
+            eur_orders.append(eur_order)
+
+            # Track conversion stats
+            currency = order["currency"]
+            conversion_stats[currency] = conversion_stats.get(currency, 0) + 1
+        else:
+            logging.warning(
+                f"Failed to convert order {order['id']} from {order['currency']}"
+            )
+
+    logging.info(f"Conversion stats: {conversion_stats}")
+    return eur_orders
 
 
-def etl_hourly_conversion(source_dsn: str, target_dsn: str, hours_back: int = 1) -> int:
-    """
-    Complete ETL process: extract, convert, load
+def load_orders_to_target(target_dsn: str, eur_orders: List[Dict[str, Any]]) -> int:
+    """Load EUR orders to target database"""
 
-    Args:
-        source_dsn: Source database (postgres-1)
-        target_dsn: Target database (postgres-2)
-        hours_back: How many hours back to process
-
-    Returns:
-        Number of records converted and inserted
-    """
-    from src.repositories.postgres_repo import (
-        ensure_orders_eur_table,
-        bulk_insert_orders_eur,
-    )
-
-    # Calculate time window
-    end_time = datetime.now(timezone.utc)
-    start_time = end_time - timedelta(hours=hours_back)
+    if not eur_orders:
+        return 0
 
     # Ensure target table exists
     ensure_orders_eur_table(target_dsn)
 
-    # Extract orders from source
-    orders = fetch_orders_from_source(source_dsn, start_time, end_time)
+    # Insert orders
+    inserted_count = insert_orders_eur(target_dsn, eur_orders)
+
+    logging.info(f"Loaded {inserted_count} EUR orders to target database")
+    return inserted_count
+
+
+def etl_hourly_conversion(source_dsn: str, target_dsn: str, hours_back: int = 1) -> int:
+    """Complete ETL process - kept for backward compatibility"""
+
+    # Extract
+    orders = extract_orders_from_source(source_dsn, hours_back)
+
     if not orders:
+        logging.info("No orders to process")
         return 0
 
-    # Get current exchange rates
-    rates, fx_timestamp = get_exchange_rates()
+    # Transform
+    rates, timestamp = get_exchange_rates()
+    eur_orders = transform_orders_to_eur(orders, rates)
 
-    # Convert to EUR
-    converted_records = convert_orders_batch(orders, rates, fx_timestamp)
-    if not converted_records:
-        return 0
+    # Load
+    loaded_count = load_orders_to_target(target_dsn, eur_orders)
 
-    # Load to target database
-    return bulk_insert_orders_eur(target_dsn, converted_records)
+    return loaded_count
