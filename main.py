@@ -12,6 +12,7 @@ if not source_dsn or not target_dsn:
 from tests import *
 from src.services.exchange_rates import get_exchange_rates
 from src.utils.logging_config import setup_logging
+from src.services.clear_databases import clear_databases
 
 setup_logging(logging.DEBUG, full_color=True, include_function=True)
 
@@ -22,8 +23,7 @@ def main():
 
 if __name__ == "__main__":
     try:
-        test_api_connection()
-        logging.success("All tests passed!")
+        clear_databases()
     except Exception as e:
         logging.error(f"Error occurred: {e}")
         raise e
