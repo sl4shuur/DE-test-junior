@@ -13,13 +13,12 @@ def extract_orders_from_source(
     """Extract orders from source database for the last N hours"""
 
     cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours_back)
-    cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours_back)
 
     query = """
-    SELECT id, user_id, amount, currency, created_at
+    SELECT order_id, customer_email, order_date, amount, currency
     FROM public.orders 
-    WHERE created_at >= %s
-    ORDER BY created_at DESC
+    WHERE order_date >= %s
+    ORDER BY order_date DESC
     """
 
     try:
@@ -61,14 +60,13 @@ def transform_orders_to_eur(
             )
 
             eur_order = {
-                "src_order_id": order["id"],
-                "user_id": order["user_id"],
+                "order_id": order["order_id"],
+                "customer_email": order["customer_email"],
+                "order_date": order["order_date"],
                 "amount_eur": amount_eur,
                 "src_currency": order["currency"],
-                "src_amount": order["amount"],
                 "fx_rate_used": fx_rate,
-                "converted_at": datetime.now(timezone.utc),
-                "created_at": order["created_at"],
+                "fx_asof": datetime.now(timezone.utc),
             }
 
             eur_orders.append(eur_order)
@@ -78,7 +76,7 @@ def transform_orders_to_eur(
             conversion_stats[currency] = conversion_stats.get(currency, 0) + 1
         else:
             logging.warning(
-                f"Failed to convert order {order['id']} from {order['currency']}"
+                f"Failed to convert order {order['order_id']} from {order['currency']}"
             )
 
     logging.info(f"Conversion stats: {conversion_stats}")

@@ -24,9 +24,8 @@ def generate_orders(n: int, now: datetime, seed: int | None = 69) -> list[dict]:
 
     start = now - timedelta(days=7)
     rows: list[dict] = []
-    # TODO: replace with OpenExchangeRates API call
-    # currencies = list(get_supported_currencies().keys())
     currencies = ["USD", "EUR", "GBP", "BTC"]
+    currencies = list(get_supported_currencies().keys())
     logging.debug(f"Supported currencies: {currencies}")
 
     for _ in range(n):

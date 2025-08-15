@@ -121,12 +121,12 @@ def insert_orders_eur(dsn: str, eur_orders: List[Dict[str, Any]]) -> int:
 
     query = """
     INSERT INTO public.orders_eur 
-    (src_order_id, user_id, amount_eur, src_currency, src_amount, fx_rate_used, converted_at, created_at)
-    VALUES (%(src_order_id)s, %(user_id)s, %(amount_eur)s, %(src_currency)s, %(src_amount)s, %(fx_rate_used)s, %(converted_at)s, %(created_at)s)
-    ON CONFLICT (src_order_id) DO UPDATE SET
+    (order_id, customer_email, order_date, amount_eur, src_currency, fx_rate_used, fx_asof)
+    VALUES (%(order_id)s, %(customer_email)s, %(order_date)s, %(amount_eur)s, %(src_currency)s, %(fx_rate_used)s, %(fx_asof)s)
+    ON CONFLICT (order_id) DO UPDATE SET
         amount_eur = EXCLUDED.amount_eur,
         fx_rate_used = EXCLUDED.fx_rate_used,
-        converted_at = EXCLUDED.converted_at
+        fx_asof = EXCLUDED.fx_asof
     """
 
     try:

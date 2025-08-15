@@ -1,4 +1,5 @@
 import requests, os, logging, dotenv
+from decimal import Decimal
 
 dotenv.load_dotenv()
 
@@ -67,7 +68,7 @@ def get_supported_currencies(app_id: str | None = APP_ID_ENV) -> dict[str, str]:
 
 
 
-def convert_to_eur(amount: float, from_currency: str, rates: dict[str, float]) -> float | None:
+def convert_to_eur(amount: float | Decimal, from_currency: str, rates: dict[str, float]) -> float | None:
     """
     Convert amount from any currency to EUR using USD as base
     
@@ -79,6 +80,7 @@ def convert_to_eur(amount: float, from_currency: str, rates: dict[str, float]) -
     Returns:
         Converted amount in EUR or None if conversion not possible
     """
+    amount = float(amount)
     if from_currency == "EUR":
         return amount
     
